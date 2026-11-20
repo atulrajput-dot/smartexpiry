@@ -1,7 +1,6 @@
-# Secrets: never commit (each app has a .env.example instead)
+# Env files: never commit (.env and .env.example stay on your computer only)
 .env
 .env.*
-!.env.example
 
 # Dependencies and build output
 node_modules/

@@ -1,0 +1,363 @@
+// SmartExpiry - Admin app
+// The Admin app OWNS the database schema and migrations.
+// After changing models here, copy this file to smartexpiry-employee/prisma/schema.prisma
+// and run `npm run db:generate` in the Employee app.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Admin accounts. Holds profile, credentials, email verification state and
+/// the current refresh-token session (one active session per admin).
+model Admin {
+  id           String @id @default(cuid())
+  name         String @db.VarChar(80)
+  email        String @unique @db.VarChar(255)
+  phone        String @unique @db.VarChar(20)
+  passwordHash String @map("password_hash")
+
+  // Email verification (6-digit OTP, stored as a keyed hash)
+  emailVerified     Boolean   @default(false) @map("email_verified")
+  emailVerifiedAt   DateTime? @map("email_verified_at")
+  emailOtpHash      String?   @map("email_otp_hash")
+  emailOtpExpiresAt DateTime? @map("email_otp_expires_at")
+  emailOtpSentAt    DateTime? @map("email_otp_sent_at")
+  emailOtpAttempts  Int       @default(0) @map("email_otp_attempts")
+
+  // Session (refresh token is stored hashed, rotated on every refresh)
+  refreshTokenHash         String?   @map("refresh_token_hash")
+  refreshTokenExpiresAt    DateTime? @map("refresh_token_expires_at")
+  /// The refresh token replaced by the latest rotation, still accepted for a few
+  /// seconds so parallel requests that raced the rotation aren't logged out.
+  previousRefreshTokenHash String?   @map("previous_refresh_token_hash")
+  refreshTokenRotatedAt    DateTime? @map("refresh_token_rotated_at")
+  lastLoginAt              DateTime? @map("last_login_at")
+
+  // Forgot password: 6-digit code emailed to the admin (stored as a keyed hash)
+  passwordResetOtpHash      String?   @map("password_reset_otp_hash")
+  passwordResetOtpExpiresAt DateTime? @map("password_reset_otp_expires_at")
+  passwordResetOtpSentAt    DateTime? @map("password_reset_otp_sent_at")
+  passwordResetOtpAttempts  Int       @default(0) @map("password_reset_otp_attempts")
+
+  // Monotonic sequence used to create stable, per-admin store codes.
+  storeCodeCounter    Int @default(0) @map("store_code_counter")
+  // Monotonic sequence for per-admin employee IDs (EMP-001, EMP-002 …).
+  employeeCodeCounter Int @default(0) @map("employee_code_counter")
+
+  stores    Store[]
+  employees Employee[]
+  products  Product[]
+  batches   InventoryBatch[]
+  activity  ActivityLog[]
+  actions   ActivityLog[]    @relation("ActivityByAdmin")
+
+  aiConversations AiConversation[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("admins")
+}
+
+/// Store locations managed by an admin account.
+model Store {
+  id      String  @id @default(cuid())
+  adminId String  @map("admin_id")
+  name    String  @db.VarChar(120)
+  code    String  @db.VarChar(32)
+  email   String? @db.VarChar(255)
+  phone   String  @db.VarChar(20)
+  address String  @db.VarChar(255)
+  country String  @db.VarChar(100)
+  state   String  @db.VarChar(100)
+  city    String  @db.VarChar(100)
+  pincode String  @db.VarChar(20)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  admin     Admin            @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  employees EmployeeStore[]
+  batches   InventoryBatch[]
+
+  @@unique([adminId, code])
+  @@index([adminId, createdAt])
+  @@map("stores")
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+
+  @@map("employee_status")
+}
+
+/// Staff accounts created by an admin. Employees sign in to the Employee app
+/// with their email + password and work in one or more of the admin's stores.
+model Employee {
+  id                String         @id @default(cuid())
+  adminId           String         @map("admin_id")
+  employeeCode      String         @map("employee_code") @db.VarChar(20)
+  name              String         @db.VarChar(80)
+  /// Login identifier for the Employee app — unique across all employees.
+  email             String         @unique @db.VarChar(255)
+  phone             String         @db.VarChar(20)
+  passwordHash      String         @map("password_hash")
+  /// AES-256-GCM encrypted copy so the owning admin can view/share the password.
+  /// Login always checks passwordHash. Null for employees created before this existed.
+  passwordEncrypted String?        @map("password_encrypted")
+  designation       String         @db.VarChar(80)
+  status            EmployeeStatus @default(ACTIVE)
+
+  // Optional profile photo, stored in the DB (max 2 MB) and served by
+  // /api/employees/[id]/avatar to the owning admin only.
+  profileImage     Bytes?  @map("profile_image")
+  profileImageType String? @map("profile_image_type") @db.VarChar(50)
+
+  // Employee app session (same rotation scheme as admins). One session per
+  // employee; cleared when the admin changes the password or deactivates them.
+  refreshTokenHash         String?   @map("refresh_token_hash")
+  refreshTokenExpiresAt    DateTime? @map("refresh_token_expires_at")
+  previousRefreshTokenHash String?   @map("previous_refresh_token_hash")
+  refreshTokenRotatedAt    DateTime? @map("refresh_token_rotated_at")
+  lastLoginAt              DateTime? @map("last_login_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  admin    Admin            @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  stores   EmployeeStore[]
+  batches  InventoryBatch[]
+  activity ActivityLog[]
+
+  aiConversations AiConversation[]
+
+  @@unique([adminId, employeeCode])
+  @@index([adminId, createdAt])
+  @@map("employees")
+}
+
+/// Which stores an employee works in (many-to-many).
+model EmployeeStore {
+  employeeId String   @map("employee_id")
+  storeId    String   @map("store_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@id([employeeId, storeId])
+  @@index([storeId])
+  @@map("employee_stores")
+}
+
+enum ProductType {
+  PERISHABLE
+  NON_PERISHABLE
+
+  @@map("product_type")
+}
+
+/// Where a product's details came from (helps admins know what to double-check).
+enum ProductSource {
+  MANUAL
+  BARCODE_LOOKUP
+
+  @@map("product_source")
+}
+
+/// The admin's product catalog. A product is defined once (per barcode) and
+/// stocked in any number of stores through InventoryBatch rows.
+model Product {
+  id           String        @id @default(cuid())
+  adminId      String        @map("admin_id")
+  name         String        @db.VarChar(160)
+  /// Normalized GTIN (EAN-13/UPC/EAN-8). Unique per admin so a re-scan finds it.
+  barcode      String?       @db.VarChar(32)
+  brand        String?       @db.VarChar(120)
+  category     String        @db.VarChar(60)
+  description  String?       @db.VarChar(1000)
+  imageUrl     String?       @map("image_url") @db.VarChar(500)
+  productType  ProductType   @default(PERISHABLE) @map("product_type")
+  unit         String        @db.VarChar(20)
+  packageSize  String?       @map("package_size") @db.VarChar(40)
+  ingredients  String?       @db.VarChar(2000)
+  storageInfo  String?       @map("storage_info") @db.VarChar(300)
+  /// False for items that never expire (expiry date then optional on batches).
+  tracksExpiry Boolean       @default(true) @map("tracks_expiry")
+  source       ProductSource @default(MANUAL)
+  /// Per unit, in the company's currency (₹). Optional; used for "value at risk".
+  costPrice    Decimal?      @map("cost_price") @db.Decimal(10, 2)
+  sellingPrice Decimal?      @map("selling_price") @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  admin   Admin            @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  batches InventoryBatch[]
+
+  @@unique([adminId, barcode])
+  @@index([adminId, name])
+  @@map("products")
+}
+
+/// One delivery/lot of a product in a store: quantity + its own expiry date.
+/// The same product can have several batches with different expiry dates.
+model InventoryBatch {
+  id          String  @id @default(cuid())
+  productId   String  @map("product_id")
+  storeId     String  @map("store_id")
+  batchNumber String? @map("batch_number") @db.VarChar(40)
+
+  quantityReceived  Decimal @map("quantity_received") @db.Decimal(10, 2)
+  quantityRemaining Decimal @map("quantity_remaining") @db.Decimal(10, 2)
+
+  manufacturingDate DateTime? @map("manufacturing_date") @db.Date
+  /// Null only for products that don't track expiry.
+  expiryDate        DateTime? @map("expiry_date") @db.Date
+  receivedAt        DateTime  @default(now()) @map("received_at")
+
+  // Who added it: an admin now, employees later (from the Employee app).
+  createdByAdminId    String? @map("created_by_admin_id")
+  createdByEmployeeId String? @map("created_by_employee_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  product           Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  store             Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  createdByAdmin    Admin?    @relation(fields: [createdByAdminId], references: [id], onDelete: SetNull)
+  createdByEmployee Employee? @relation(fields: [createdByEmployeeId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, expiryDate])
+  @@index([productId])
+  @@map("inventory_batches")
+}
+
+enum ActivityAction {
+  STOCK_ADDED
+  STOCK_UPDATED
+  STOCK_REMOVED
+  EXPIRED_CLEARED
+
+  @@map("activity_action")
+}
+
+/// Why stock left the shelf (recorded with STOCK_REMOVED / EXPIRED_CLEARED).
+enum RemovalReason {
+  SOLD
+  EXPIRED
+  DAMAGED
+  RETURNED
+  OTHER
+
+  @@map("removal_reason")
+}
+
+/// Who did what to which stock, and when. Names are copied at the time of the
+/// action so the history stays readable after products/stores/people change.
+model ActivityLog {
+  id      String         @id @default(cuid())
+  /// Company the event belongs to (the admin who owns the stores).
+  adminId String         @map("admin_id")
+  action  ActivityAction
+  reason  RemovalReason?
+
+  actorAdminId    String? @map("actor_admin_id")
+  actorEmployeeId String? @map("actor_employee_id")
+  actorName       String  @map("actor_name") @db.VarChar(80)
+  /// "Admin" or the employee code (EMP-001).
+  actorLabel      String  @map("actor_label") @db.VarChar(30)
+
+  storeId     String?  @map("store_id")
+  storeName   String   @map("store_name") @db.VarChar(120)
+  productName String   @map("product_name") @db.VarChar(160)
+  unit        String?  @db.VarChar(20)
+  quantity    Decimal? @db.Decimal(10, 2)
+  /// Human-readable change summary, e.g. "Quantity 12 → 8 · Expiry 2 Dec → 5 Dec".
+  details     String?  @db.VarChar(500)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  admin         Admin     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  actorAdmin    Admin?    @relation("ActivityByAdmin", fields: [actorAdminId], references: [id], onDelete: SetNull)
+  actorEmployee Employee? @relation(fields: [actorEmployeeId], references: [id], onDelete: SetNull)
+
+  @@index([adminId, createdAt])
+  @@index([adminId, storeId, createdAt])
+  @@index([actorEmployeeId, createdAt])
+  @@map("activity_logs")
+}
+
+/// Failed sign-in counter per key ("admin:email", "employee:email") for lockouts.
+/// Shared by both apps through the database.
+model LoginThrottle {
+  key         String    @id @db.VarChar(300)
+  failures    Int       @default(0)
+  windowStart DateTime  @map("window_start")
+  lockedUntil DateTime? @map("locked_until")
+
+  @@map("login_throttles")
+}
+
+/// ─────────────────────────────── AI assistant ───────────────────────────────
+
+enum AiMessageRole {
+  USER
+  ASSISTANT
+
+  @@map("ai_message_role")
+}
+
+/// Where an assistant reply came from.
+enum AiMessageSource {
+  AI // answered by the AI model
+  QUICK // built-in quick answer from live data (AI limit reached / unavailable)
+  ERROR // nothing could be answered
+
+  @@map("ai_message_source")
+}
+
+/// One chat thread. employeeId = null is the admin's own chat (employee chats come later).
+model AiConversation {
+  id         String  @id @default(cuid())
+  adminId    String  @map("admin_id")
+  employeeId String? @map("employee_id")
+  title      String  @db.VarChar(120)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  admin    Admin       @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  employee Employee?   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  messages AiMessage[]
+
+  @@index([adminId, employeeId, updatedAt])
+  @@map("ai_conversations")
+}
+
+model AiMessage {
+  id             String           @id @default(cuid())
+  conversationId String           @map("conversation_id")
+  role           AiMessageRole
+  source         AiMessageSource?
+  /// Markdown text (also the plain-text version of quick answers, used as chat context).
+  text           String
+  /// Structured quick-answer blocks (stats / lists / links), when present.
+  blocks         Json?
+  model          String?          @db.VarChar(60)
+  inputTokens    Int?             @map("input_tokens")
+  outputTokens   Int?             @map("output_tokens")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("ai_messages")
+}

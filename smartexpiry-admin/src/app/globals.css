@@ -1,0 +1,198 @@
+@import "tailwindcss";
+
+/* Dark mode is driven by the `.dark` class that next-themes puts on <html>. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─────────────────────────────────────────────────────────────
+   SmartExpiry design tokens
+   Primary  = emerald (freshness / "good to use")
+   Accent   = amber   (expiring soon)
+   Danger   = red     (expired / destructive)
+   Change colors here only — components use the semantic names.
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --background: #f6f9f8;
+  --foreground: #0f1f1a;
+
+  --card: #ffffff;
+  --card-foreground: #0f1f1a;
+
+  --muted: #edf3f0;
+  --muted-foreground: #5b6b65;
+
+  --border: #dde5e2;
+  --input: #cfdad6;
+  --ring: #10b981;
+
+  --primary: #047857;
+  --primary-hover: #065f46;
+  --primary-foreground: #ffffff;
+
+  --secondary: #e3efe9;
+  --secondary-hover: #d3e6dd;
+  --secondary-foreground: #0f3b2e;
+
+  --accent: #f59e0b;
+  --accent-foreground: #3b2300;
+
+  --success: #15803d;
+  --success-soft: #dcfce7;
+  --warning: #b45309;
+  --warning-soft: #fef3c7;
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --danger-foreground: #ffffff;
+  --danger-soft: #fee2e2;
+  --info: #0369a1;
+  --info-soft: #e0f2fe;
+
+  --brand-gradient-from: #047857;
+  --brand-gradient-to: #0d9488;
+
+  color-scheme: light;
+}
+
+.dark {
+  --background: #0a1210;
+  --foreground: #e6efeb;
+
+  --card: #101a17;
+  --card-foreground: #e6efeb;
+
+  --muted: #15211d;
+  --muted-foreground: #8fa39c;
+
+  --border: #22312c;
+  --input: #2c3d37;
+  --ring: #34d399;
+
+  --primary: #34d399;
+  --primary-hover: #6ee7b7;
+  --primary-foreground: #052e20;
+
+  --secondary: #1a2a25;
+  --secondary-hover: #22352f;
+  --secondary-foreground: #d5e6df;
+
+  --accent: #fbbf24;
+  --accent-foreground: #2a1a00;
+
+  --success: #4ade80;
+  --success-soft: #0f2e1c;
+  --warning: #fbbf24;
+  --warning-soft: #2f2208;
+  --danger: #f87171;
+  --danger-hover: #fca5a5;
+  --danger-foreground: #2b0707;
+  --danger-soft: #331414;
+  --info: #38bdf8;
+  --info-soft: #0b2533;
+
+  --brand-gradient-from: #064e3b;
+  --brand-gradient-to: #134e4a;
+
+  color-scheme: dark;
+}
+
+/* Expose tokens as Tailwind utilities: bg-primary, text-muted-foreground, border-border … */
+@theme inline {
+  /* Small popover entrance: `animate-pop-in` */
+  --animate-pop-in: pop-in 140ms ease-out;
+  /* Moving line over the camera view while scanning: `animate-scan-line` */
+  --animate-scan-line: scan-line 2.2s ease-in-out infinite;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-hover: var(--secondary-hover);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+
+  --color-brand-from: var(--brand-gradient-from);
+  --color-brand-to: var(--brand-gradient-to);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 25%, transparent);
+  }
+
+  /* Keep browser autofill from painting fields yellow/blue in either theme. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--foreground);
+    -webkit-box-shadow: 0 0 0 1000px var(--card) inset;
+    transition: background-color 9999s ease-in-out 0s;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pop-in {
+    animation: none;
+  }
+}
+
+@keyframes scan-line {
+  0%,
+  100% {
+    top: 12%;
+  }
+  50% {
+    top: 88%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-scan-line {
+    animation: none;
+    top: 50%;
+  }
+}

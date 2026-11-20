@@ -1,0 +1,23 @@
+# Secrets: never commit (each app has a .env.example instead)
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+.next/
+out/
+build/
+src/generated/prisma/
+*.tsbuildinfo
+next-env.d.ts
+
+# Local HTTPS dev certificates
+certs/
+
+# Logs, OS and editor files
+*.log
+npm-debug.log*
+.DS_Store
+.vscode/
+.idea/
